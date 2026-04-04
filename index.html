@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Missions Monitor</title>
+    <meta name="description" content="Мониторинг космических миссий: роверы, лендеры, орбитальные аппараты. Фото с Марса, Луны, Сатурна, Юпитера и других тел Солнечной системы.">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta property="og:title" content="Space Missions Monitor">
+    <meta property="og:description" content="Фото и данные с космических миссий NASA, ESA, JAXA, CNSA, ISRO">
+    <meta property="og:type" content="website">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="header-bar">
+            <span class="logo">🚀 Space Missions</span>
+            <nav class="tabs" role="tablist" aria-label="Выбор миссии"></nav>
+        </div>
+    </header>
+
+    <main></main>
+
+    <div id="lightbox" class="lightbox" role="dialog" aria-modal="true" aria-label="Просмотр фото" hidden>
+        <div class="lightbox-backdrop"></div>
+        <div class="lightbox-content">
+            <button class="lightbox-close" aria-label="Закрыть">&times;</button>
+            <img id="lightbox-img" src="" alt="">
+            <div id="lightbox-caption" class="lightbox-caption"></div>
+        </div>
+    </div>
+
+    <footer>
+        <p>Данные: NASA Mars Rover Photos API • NASA Image and Video Library • Wikimedia Commons</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
