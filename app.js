@@ -105,7 +105,6 @@ const MISSIONS = {
     lro: {
         type: 'nasa-images', name: 'LRO', fullName: 'Lunar Reconnaissance Orbiter',
         searchQuery: 'Lunar Reconnaissance Orbiter', defaultYear: '', nasaCenter: '',
-        active: true,
     },
     chandrayaan3: {
         type: 'nasa-images',
@@ -262,12 +261,10 @@ const MISSIONS = {
     new_horizons: {
         type: 'nasa-images', name: 'New Horizons', fullName: 'New Horizons — Плутон и пояс Койпера',
         searchQuery: 'New Horizons Pluto', defaultYear: '', nasaCenter: '',
-        active: true,
     },
     voyager: {
         type: 'nasa-images', name: 'Voyager', fullName: 'Voyager 1 & 2 — дальний космос',
         searchQuery: 'Voyager spacecraft planet', defaultYear: '', nasaCenter: '',
-        active: true,
     },
     osiris_rex: {
         type: 'nasa-images',
@@ -288,7 +285,6 @@ const MISSIONS = {
         defaultYear: '',
         nasaCenter: '',
         wikimediaQuery: 'Hayabusa2 Ryugu',
-        active: true,
     },
     messenger: {
         type: 'nasa-images',
@@ -329,11 +325,11 @@ const MISSIONS = {
     mars_express: {
         type: 'nasa-images', name: 'Mars Express', fullName: 'Mars Express (ESA)',
         searchQuery: 'Mars Express ESA', defaultYear: '', nasaCenter: '',
-        wikimediaQuery: 'Mars Express spacecraft', active: true,
+        wikimediaQuery: 'Mars Express spacecraft',
     },
     maven: {
         type: 'nasa-images', name: 'MAVEN', fullName: 'MAVEN — атмосфера Марса',
-        searchQuery: 'MAVEN Mars', defaultYear: '', nasaCenter: '', active: true,
+        searchQuery: 'MAVEN Mars', defaultYear: '', nasaCenter: '',
     },
     mars_odyssey: {
         type: 'nasa-images', name: 'Odyssey', fullName: 'Mars Odyssey',
@@ -347,7 +343,7 @@ const MISSIONS = {
     exomars_tgo: {
         type: 'nasa-images', name: 'ExoMars TGO', fullName: 'ExoMars Trace Gas Orbiter',
         searchQuery: 'ExoMars Trace Gas Orbiter', defaultYear: '', nasaCenter: '',
-        wikimediaQuery: 'ExoMars Trace Gas Orbiter', active: true,
+        wikimediaQuery: 'ExoMars Trace Gas Orbiter',
     },
     // ── Луна дополнительно ──
     chandrayaan1: {
@@ -401,7 +397,7 @@ const MISSIONS = {
     juice: {
         type: 'nasa-images', name: 'JUICE', fullName: 'JUICE — Юпитер (ESA)',
         searchQuery: 'JUICE Jupiter ESA', defaultYear: '', nasaCenter: '',
-        wikimediaQuery: 'JUICE spacecraft Jupiter', active: true,
+        wikimediaQuery: 'JUICE spacecraft Jupiter',
     },
     // ── Солнце ──
     parker: {
@@ -411,7 +407,7 @@ const MISSIONS = {
     soho: {
         type: 'nasa-images', name: 'SOHO', fullName: 'SOHO — Солнце',
         searchQuery: 'SOHO Sun', defaultYear: '', nasaCenter: '',
-        wikimediaQuery: 'SOHO spacecraft Sun', active: true,
+        wikimediaQuery: 'SOHO spacecraft Sun',
     },
     solar_orbiter: {
         type: 'nasa-images', name: 'Solar Orbiter', fullName: 'Solar Orbiter (ESA/NASA)',
@@ -438,7 +434,7 @@ const MISSIONS = {
     lucy: {
         type: 'nasa-images', name: 'Lucy', fullName: 'Lucy — троянские астероиды',
         searchQuery: 'Lucy spacecraft asteroid', defaultYear: '', nasaCenter: '',
-        wikimediaQuery: 'Lucy spacecraft asteroid', active: true,
+        wikimediaQuery: 'Lucy spacecraft asteroid',
     },
     dart: {
         type: 'nasa-images', name: 'DART', fullName: 'DART — Диморфос',
@@ -611,7 +607,9 @@ function renderMarsPhotos(container, photos, mission) {
 async function fetchNasaImages(missionId, query = null, page = 1, _fallbackIdx = 0) {
     const m = MISSIONS[missionId];
     const s = state[missionId];
-    if (_fallbackIdx === 0) {
+    const append = page > 1;
+
+    if (!append) {
         if (s.dataAbort) s.dataAbort.abort();
         s.dataAbort = new AbortController();
     }
@@ -623,11 +621,16 @@ async function fetchNasaImages(missionId, query = null, page = 1, _fallbackIdx =
     const q = query || searchInput?.value || m.searchQuery;
     const year = yearInput ? yearInput.value : '';
 
-    els.photos.innerHTML = '<p class="loading">Поиск изображений...</p>';
+    if (!append) {
+        els.photos.innerHTML = '<p class="loading">Поиск изображений...</p>';
+    }
+
+    // Убираем sentinel если есть
+    const oldSentinel = els.photos.querySelector('.scroll-sentinel');
+    if (oldSentinel) oldSentinel.remove();
 
     let url = `https://images-api.nasa.gov/search?q=${encodeURIComponent(q)}&media_type=image&page=${page}&page_size=30`;
 
-    // Для активных миссий без ручного года — фильтруем по последним 2 годам
     if (m.active && !year && !query) {
         const currentYear = new Date().getFullYear();
         url += `&year_start=${currentYear - 1}&year_end=${currentYear}`;
@@ -637,13 +640,10 @@ async function fetchNasaImages(missionId, query = null, page = 1, _fallbackIdx =
     if (m.nasaCenter) url += `&center=${m.nasaCenter}`;
 
     try {
-        const res = await fetch(url, { signal: s.dataAbort.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data = await cachedFetch(url, s.dataAbort.signal, m.active);
         let items = data.collection?.items || [];
         let totalHits = data.collection?.metadata?.total_hits || 0;
 
-        // Для активных миссий — сортируем по дате (новые первые)
         if (m.active && items.length > 0) {
             items.sort((a, b) => {
                 const da = a.data?.[0]?.date_created || '';
@@ -652,46 +652,61 @@ async function fetchNasaImages(missionId, query = null, page = 1, _fallbackIdx =
             });
         }
 
-        // Fallback: если 0 результатов и есть альтернативные запросы
         if (totalHits === 0 && m.fallbackQueries && _fallbackIdx < m.fallbackQueries.length && !query) {
             return fetchNasaImages(missionId, m.fallbackQueries[_fallbackIdx], page, _fallbackIdx + 1);
         }
 
-        // Если мало результатов — дополняем из Wikimedia Commons
         if (totalHits < 50 && m.wikimediaQuery && page === 1) {
             const wikiItems = await fetchWikimediaCommons(m.wikimediaQuery, 30 - items.length, s.dataAbort.signal);
             renderCombinedPhotos(els.photos, items, wikiItems, totalHits, missionId, q, page);
         } else {
-            renderNasaPhotos(els.photos, items, totalHits, missionId, q, page);
+            renderNasaPhotos(els.photos, items, totalHits, missionId, q, page, append);
         }
+
+        // Сохраняем состояние для infinite scroll
+        const maxPage = Math.ceil(totalHits / 30);
+        s.scrollQuery = q;
+        s.scrollPage = page;
+        s.scrollMaxPage = Math.min(maxPage, 100);
+        s.scrollLoading = false;
+
     } catch (e) {
         if (e.name === 'AbortError') return;
-        if (m.wikimediaQuery) {
-            try {
-                els.photos.innerHTML = '<p class="loading">NASA API недоступен, ищем в Wikimedia Commons...</p>';
-                const wikiItems = await fetchWikimediaCommons(m.wikimediaQuery, 30);
-                renderCombinedPhotos(els.photos, [], wikiItems, 0, missionId, m.wikimediaQuery, 1);
-            } catch (e2) {
-                els.photos.innerHTML = '<p style="color:var(--error);">Ошибка загрузки изображений</p>';
+        s.scrollLoading = false;
+        if (!append) {
+            if (m.wikimediaQuery) {
+                try {
+                    els.photos.innerHTML = '<p class="loading">NASA API недоступен, ищем в Wikimedia Commons...</p>';
+                    const wikiItems = await fetchWikimediaCommons(m.wikimediaQuery, 30);
+                    renderCombinedPhotos(els.photos, [], wikiItems, 0, missionId, m.wikimediaQuery, 1);
+                } catch (e2) {
+                    els.photos.innerHTML = '<p style="color:var(--error);">Ошибка загрузки изображений</p>';
+                }
+            } else {
+                els.photos.innerHTML = '<p style="color:var(--error);">Ошибка загрузки из NASA Image Library</p>';
             }
-        } else {
-            els.photos.innerHTML = '<p style="color:var(--error);">Ошибка загрузки из NASA Image Library</p>';
         }
     }
 }
 
-function renderNasaPhotos(container, items, totalHits, missionId, query, page) {
-    container.innerHTML = '';
+function renderNasaPhotos(container, items, totalHits, missionId, query, page, append = false) {
+    if (!append) {
+        container.innerHTML = '';
 
-    if (!items.length) {
-        container.innerHTML = '<p class="loading">Изображения не найдены. Попробуйте другой запрос.</p>';
-        return;
+        if (!items.length) {
+            container.innerHTML = '<p class="loading">Изображения не найдены. Попробуйте другой запрос.</p>';
+            return;
+        }
+
+        const info = document.createElement('div');
+        info.className = 'search-results-info';
+        info.innerHTML = `Найдено: ${totalHits}`;
+        container.appendChild(info);
     }
 
-    const info = document.createElement('div');
-    info.className = 'search-results-info';
-    info.innerHTML = `Найдено: ${totalHits} • Страница ${page}`;
-    container.appendChild(info);
+    // Убираем старый sentinel
+    const oldSentinel = container.querySelector('.scroll-sentinel');
+    if (oldSentinel) oldSentinel.remove();
 
     items.forEach(item => {
         const imgData = item.data?.[0];
@@ -723,20 +738,14 @@ function renderNasaPhotos(container, items, totalHits, missionId, query, page) {
         container.appendChild(card);
     });
 
-    if (totalHits > 30) {
-        const nav = document.createElement('div');
-        nav.className = 'pagination';
-        const maxPage = Math.ceil(totalHits / 30);
-        nav.innerHTML = `
-            ${page > 1 ? `<button class="page-btn" data-page="${page - 1}">← Назад</button>` : ''}
-            <span>Стр. ${page} из ${Math.min(maxPage, 100)}</span>
-            ${page < Math.min(maxPage, 100) ? `<button class="page-btn" data-page="${page + 1}">Далее →</button>` : ''}
-        `;
-        nav.addEventListener('click', (e) => {
-            const btn = e.target.closest('.page-btn');
-            if (btn) fetchNasaImages(missionId, query, parseInt(btn.dataset.page));
-        });
-        container.appendChild(nav);
+    // Добавляем sentinel для infinite scroll если есть ещё страницы
+    const maxPage = Math.ceil(totalHits / 30);
+    if (page < Math.min(maxPage, 100) && items.length > 0) {
+        const sentinel = document.createElement('div');
+        sentinel.className = 'scroll-sentinel';
+        sentinel.innerHTML = '<p class="loading">Загрузка...</p>';
+        container.appendChild(sentinel);
+        observeSentinel(sentinel, missionId);
     }
 }
 
@@ -987,6 +996,39 @@ function initLightbox() {
     });
 }
 
+// ── Infinite Scroll ──
+
+function observeSentinel(sentinel, missionId) {
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (!entry.isIntersecting) return;
+            observer.disconnect();
+            const s = state[missionId];
+            if (s.scrollLoading || s.scrollPage >= s.scrollMaxPage) return;
+            s.scrollLoading = true;
+            fetchNasaImages(missionId, s.scrollQuery, s.scrollPage + 1);
+        });
+    }, { rootMargin: '400px' });
+    observer.observe(sentinel);
+}
+
+// ── Scroll to Top ──
+
+function initScrollToTop() {
+    const btn = document.createElement('button');
+    btn.className = 'scroll-top-btn';
+    btn.setAttribute('aria-label', 'Наверх');
+    btn.innerHTML = '↑';
+    btn.hidden = true;
+    document.body.appendChild(btn);
+
+    btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+
+    window.addEventListener('scroll', () => {
+        btn.hidden = window.scrollY < 600;
+    }, { passive: true });
+}
+
 // ── Init ──
 
 function generateTabs() {
@@ -1002,6 +1044,37 @@ function generateTabs() {
     });
 }
 
+const MISSION_YEARS = {
+    artemis_ii: [2026], curiosity: [2012], perseverance: [2021],
+    spirit: [2004, 2010], opportunity: [2004, 2018], lro: [2009],
+    chandrayaan3: [2023, 2023], yutu2: [2019], zhurong: [2021, 2022],
+    slim: [2024, 2024], lunokhod1: [1970, 1971], lunokhod2: [1973, 1973],
+    sojourner: [1997, 1997], ingenuity: [2021, 2024], phoenix: [2008, 2008],
+    insight: [2018, 2022], viking: [1976, 1982], apollo_lrv: [1971, 1972],
+    huygens: [2005, 2005], philae: [2014, 2016], venera: [1975, 1982],
+    cassini: [2004, 2017], juno: [2016], new_horizons: [2015],
+    voyager: [1977], osiris_rex: [2016], hayabusa2: [2018],
+    messenger: [2011, 2015], dawn: [2011, 2018], mro: [2006],
+    chang_e3: [2013, 2016], mars_express: [2003], maven: [2014],
+    mars_odyssey: [2001], mangalyaan: [2014, 2022], exomars_tgo: [2016],
+    chandrayaan1: [2008, 2009], kaguya: [2007, 2009], grail: [2012, 2012],
+    lcross: [2009, 2009], odysseus_im1: [2024, 2024], magellan: [1990, 1994],
+    akatsuki: [2015], venus_express: [2006, 2014], galileo: [1995, 2003],
+    europa_clipper: [2024], juice: [2023], parker: [2018], soho: [1996],
+    solar_orbiter: [2020], hayabusa1: [2005, 2010], stardust: [2004, 2011],
+    deep_impact: [2005, 2013], near_shoemaker: [2000, 2001],
+    lucy: [2021], dart: [2022, 2022], hubble: [1990], jwst: [2022],
+    chandra: [1999], spitzer: [2003, 2020], chang_e5: [2020, 2020],
+    chang_e6: [2024, 2024], beresheet: [2019, 2019],
+};
+
+function getMissionYearsStr(id, m) {
+    const y = MISSION_YEARS[id];
+    if (!y) return '';
+    if (y.length === 1) return m.active ? `${y[0]} – н.в.` : `${y[0]}`;
+    return `${y[0]} – ${y[1]}`;
+}
+
 function generatePanels() {
     const main = document.querySelector('main');
     Object.entries(MISSIONS).forEach(([id, m], i) => {
@@ -1009,12 +1082,14 @@ function generatePanels() {
         panel.id = `panel-${id}`;
         panel.className = 'mission-panel' + (i === 0 ? ' active' : '');
         panel.role = 'tabpanel';
+        const years = getMissionYearsStr(id, m);
+        const yearsHtml = years ? `<span class="mission-years">${years}</span>` : '';
         const statusBadge = m.active
             ? '<span style="color:#0f0;font-size:13px;">✓ Миссия активна</span>'
             : '<span style="color:#888;font-size:13px;">☆ Миссия завершена</span>';
         panel.innerHTML = `
             <section class="status"><div class="mission-part"><div id="${id}-mission-info">
-                <h2>${m.fullName || m.name}</h2>
+                <h2>${m.fullName || m.name} ${yearsHtml}</h2>
                 ${m.type === 'mars-rover' ? '<p>Загрузка...</p>' : statusBadge}
             </div></div>
             ${m.type === 'mars-rover' ? `<div class="weather-part"><h3>Погода (${m.weatherSensor}, ${m.location})</h3><div id="${id}-weather-container" class="weather-card"><p class="loading">Загрузка...</p></div></div>` : ''}
@@ -1030,6 +1105,7 @@ function initUI() {
     generateTabs();
     generatePanels();
     initLightbox();
+    initScrollToTop();
 
     Object.keys(MISSIONS).forEach(id => {
         state[id] = { dataAbort: null, weatherAbort: null, loaded: false };
